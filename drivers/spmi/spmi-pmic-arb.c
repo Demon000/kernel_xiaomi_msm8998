@@ -604,6 +604,28 @@ static bool __pmic_arb_chained_irq(struct spmi_pmic_arb *pa, bool show)
 				periph_interrupt(pa, apid, show);
 		}
 	}
+
+	/* ACC_STATUS is empty but IRQ fired check IRQ_STATUS */
+	if (!acc_valid) {
+		for (i = pa->min_apid; i <= pa->max_apid; i++) {
+			/* skip if APPS is not irq owner */
+			if (pa->apid_data[i].irq_owner != pa->ee)
+				continue;
+
+			irq_status = readl_relaxed(pa->intr +
+						pa->ver_ops->irq_status(i));
+			if (irq_status) {
+				enable = readl_relaxed(pa->intr +
+						pa->ver_ops->acc_enable(i));
+				if (enable & SPMI_PIC_ACC_ENABLE_BIT) {
+					dev_dbg(&pa->spmic->dev,
+						"Dispatching IRQ for apid=%d status=%x\n",
+						i, irq_status);
+					periph_interrupt(pa, i, show);
+				}
+			}
+		}
+	}
 	return true;
 }
 
