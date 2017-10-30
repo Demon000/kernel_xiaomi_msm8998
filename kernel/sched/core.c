@@ -97,9 +97,7 @@
 
 #include "walt.h"
 
-#ifdef CONFIG_SMP
 static bool have_sched_energy_data(void);
-#endif
 
 static atomic_t __su_instances;
 
@@ -235,11 +233,10 @@ static int sched_feat_set(char *cmp)
 				sysctl_sched_features &= ~(1UL << i);
 				sched_feat_disable(i);
 			} else {
-#ifdef CONFIG_SMP
 				if (i == __SCHED_FEAT_ENERGY_AWARE)
 					WARN(!have_sched_energy_data(),
 					     "Missing sched energy data\n");
-#endif
+
 				sysctl_sched_features |= (1UL << i);
 				sched_feat_enable(i);
 			}
