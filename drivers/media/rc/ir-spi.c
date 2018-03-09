@@ -298,6 +298,8 @@ static int ir_spi_probe(struct spi_device *spi)
 
 	idata->power_gpio = power_gpio;
 
+	dev_info(&spi->dev, "ir_spi_probe success\n");
+
 	return rc;
 }
 
