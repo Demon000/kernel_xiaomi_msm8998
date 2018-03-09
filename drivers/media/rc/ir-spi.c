@@ -67,9 +67,16 @@ static ssize_t ir_spi_chardev_write(struct file *file,
 	}
 	idata->xfer.tx_buf = idata->buffer;
 
+	if (gpio_is_valid(idata->power_gpio))
+		gpio_set_value(idata->power_gpio, 1);
+
 	ret = spi_sync_transfer(idata->spi, &idata->xfer, 1);
 	if (ret)
 		dev_err(&idata->spi->dev, "unable to deliver the signal\n");
+
+	if (gpio_is_valid(idata->power_gpio))
+		gpio_set_value(idata->power_gpio, 0);
+
 out_free:
 	if (please_free) {
 		kfree(idata->buffer);
@@ -228,6 +235,7 @@ static int ir_spi_probe(struct spi_device *spi)
 {
 	struct ir_spi_data *idata;
 	u32 bpw, freq, mode;
+	int power_gpio;
 	int rc = 0;
 
 	idata = devm_kzalloc(&spi->dev, sizeof(*idata), GFP_KERNEL);
@@ -247,6 +255,24 @@ static int ir_spi_probe(struct spi_device *spi)
 	rc = of_property_read_u32(spi->dev.of_node, "ir-spi,mode", &mode);
 	if (rc)
 		mode = SPI_MODE_0;
+
+	power_gpio = of_get_named_gpio(spi->dev.of_node, "ir-spi,power-gpio", 0);
+	if (gpio_is_valid(power_gpio)) {
+		rc = devm_gpio_request(&spi->dev, power_gpio, "power-gpio");
+		if (rc) {
+			dev_err(&spi->dev, "unable to request power_gpio\n");
+			return rc;
+		}
+		rc = gpio_direction_output(power_gpio, 0);
+		if (rc) {
+			dev_err(&spi->dev, "unable to set power_gpio direction\n");
+			return rc;
+		}
+	} else {
+		dev_info(&spi->dev, "power_gpio is not specified\n");
+		power_gpio = -ENODEV;
+	}
+
 
 	idata->lirc_driver.features    = LIRC_CAN_SEND_RAW;
 	idata->lirc_driver.code_length = 1;
@@ -269,6 +295,8 @@ static int ir_spi_probe(struct spi_device *spi)
 
 	idata->xfer.bits_per_word = (u8)bpw;
 	idata->xfer.speed_hz = freq;
+
+	idata->power_gpio = power_gpio;
 
 	return rc;
 }
