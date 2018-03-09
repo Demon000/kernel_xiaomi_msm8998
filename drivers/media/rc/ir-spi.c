@@ -227,12 +227,23 @@ static const struct file_operations ir_spi_fops = {
 static int ir_spi_probe(struct spi_device *spi)
 {
 	struct ir_spi_data *idata;
+	u32 bpw, freq;
+	int rc = 0;
 
 	idata = devm_kzalloc(&spi->dev, sizeof(*idata), GFP_KERNEL);
 	if (!idata)
 		return -ENOMEM;
 	snprintf(idata->lirc_driver.name, sizeof(idata->lirc_driver.name),
 							IR_SPI_DRIVER_NAME);
+
+	rc = of_property_read_u32(spi->dev.of_node, "ir-spi,bpw", &bpw);
+	if (rc)
+		bpw = IR_SPI_DEFAULT_BPW;
+
+	rc = of_property_read_u32(spi->dev.of_node, "ir-spi,freq", &freq);
+	if (rc)
+		freq = IR_SPI_DEFAULT_FREQUENCY;
+
 	idata->lirc_driver.features    = LIRC_CAN_SEND_RAW;
 	idata->lirc_driver.code_length = 1;
 	idata->lirc_driver.fops        = &ir_spi_fops;
@@ -251,10 +262,10 @@ static int ir_spi_probe(struct spi_device *spi)
 
 	idata->spi = spi;
 
-	idata->xfer.bits_per_word = IR_SPI_DEFAULT_BPW;
-	idata->xfer.speed_hz = IR_SPI_DEFAULT_FREQUENCY;
+	idata->xfer.bits_per_word = (u8)bpw;
+	idata->xfer.speed_hz = freq;
 
-	return 0;
+	return rc;
 }
 
 static int ir_spi_remove(struct spi_device *spi)
