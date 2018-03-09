@@ -851,16 +851,16 @@
 
 	status = "ok";
 
-	peel_ir@0 {
-		compatible = "peel_ir";
+	irled@0 {
+		compatible = "ir-spi";
 		reg = <0>;
 
-		peel_ir,lr-gpio = <73>;
-		peel_ir,lr-gpio-valid = <1>;
-		peel_ir,spi-bpw = <32>;
-		peel_ir,spi-clk-speed= <960000>;
-		peel_ir,spi-mode = <0>;
-		peel_ir,peel-field = <2345>;
+		spi-max-frequency = <19200000>;
+
+		ir-spi,power-gpio = <&tlmm 73 0x0>;
+		ir-spi,bpw = <32>;
+		ir-spi,freq = <960000>;
+		ir-spi,mode = <0>;
 
 		status = "ok";
 	};
