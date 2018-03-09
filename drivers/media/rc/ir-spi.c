@@ -227,7 +227,7 @@ static const struct file_operations ir_spi_fops = {
 static int ir_spi_probe(struct spi_device *spi)
 {
 	struct ir_spi_data *idata;
-	u32 bpw, freq;
+	u32 bpw, freq, mode;
 	int rc = 0;
 
 	idata = devm_kzalloc(&spi->dev, sizeof(*idata), GFP_KERNEL);
@@ -243,6 +243,10 @@ static int ir_spi_probe(struct spi_device *spi)
 	rc = of_property_read_u32(spi->dev.of_node, "ir-spi,freq", &freq);
 	if (rc)
 		freq = IR_SPI_DEFAULT_FREQUENCY;
+
+	rc = of_property_read_u32(spi->dev.of_node, "ir-spi,mode", &mode);
+	if (rc)
+		mode = SPI_MODE_0;
 
 	idata->lirc_driver.features    = LIRC_CAN_SEND_RAW;
 	idata->lirc_driver.code_length = 1;
@@ -261,6 +265,7 @@ static int ir_spi_probe(struct spi_device *spi)
 	mutex_init(&idata->mutex);
 
 	idata->spi = spi;
+	idata->spi.mode = (u16)mode;
 
 	idata->xfer.bits_per_word = (u8)bpw;
 	idata->xfer.speed_hz = freq;
