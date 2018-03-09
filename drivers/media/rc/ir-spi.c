@@ -21,7 +21,7 @@
 #define IR_SPI_DRIVER_NAME		"ir-spi"
 
 #define IR_SPI_DEFAULT_FREQUENCY		960000
-#define IR_SPI_BIT_PER_WORD		32
+#define IR_SPI_DEFAULT_BPW		32
 
 struct ir_spi_data {
 	u16 nusers;
@@ -251,7 +251,7 @@ static int ir_spi_probe(struct spi_device *spi)
 
 	idata->spi = spi;
 
-	idata->xfer.bits_per_word = IR_SPI_BIT_PER_WORD;
+	idata->xfer.bits_per_word = IR_SPI_DEFAULT_BPW;
 	idata->xfer.speed_hz = IR_SPI_DEFAULT_FREQUENCY;
 
 	return 0;
