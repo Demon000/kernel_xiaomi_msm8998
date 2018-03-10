@@ -214,6 +214,8 @@ static long ir_spi_chardev_ioctl(struct file *file, unsigned int cmd,
 		idata->xfer.speed_hz = p;
 		mutex_unlock(&idata->mutex);
 		return 0;
+	case LIRC_SET_SEND_DUTY_CYCLE:
+		return 0;
 	}
 
 	return -EINVAL;
