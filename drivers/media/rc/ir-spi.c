@@ -291,7 +291,7 @@ static int ir_spi_probe(struct spi_device *spi)
 	mutex_init(&idata->mutex);
 
 	idata->spi = spi;
-	idata->spi.mode = (u16)mode;
+	idata->spi->mode = (u16)mode;
 
 	idata->xfer.bits_per_word = (u8)bpw;
 	idata->xfer.speed_hz = freq;
