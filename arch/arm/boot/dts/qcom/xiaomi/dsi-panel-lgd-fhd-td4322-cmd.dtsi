@@ -103,5 +103,8 @@
 		qcom,mdss-dsi-te-using-te-pin;
 		qcom,partial-update-enabled;
 		qcom,panel-roi-alignment = <8 0 8 0 1080 0>;
+		qcom,ulps-enabled;
+		qcom,suspend-ulps-enabled;
+		qcom,panel-allow-phy-poweroff;
 	};
 };
