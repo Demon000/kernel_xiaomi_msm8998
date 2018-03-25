@@ -1944,6 +1944,7 @@ void hdd_save_gtk_params(hdd_adapter_t *adapter,
 		kek = csr_roam_info->kek;
 		kek_len = csr_roam_info->kek_len;
 	} else {
+#if defined(WLAN_FEATURE_FILS_SK)
 		/*
 		 * This should come for FILS case only.
 		 * Caller should make sure fils_join_rsp is
@@ -1951,6 +1952,7 @@ void hdd_save_gtk_params(hdd_adapter_t *adapter,
 		 */
 		kek = csr_roam_info->fils_join_rsp->kek;
 		kek_len = csr_roam_info->fils_join_rsp->kek_len;
+#endif
 	}
 
 	wlan_hdd_save_gtk_offload_params(adapter, NULL, kek, kek_len,
