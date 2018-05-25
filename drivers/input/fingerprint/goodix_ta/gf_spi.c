@@ -79,14 +79,14 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct gf_dev *gf_dev = &gf;
 	struct gf_key gf_key;
-	int retval = 0;
+	int rc = 0;
 	u8 netlink_route = NETLINK_TEST;
 
 	switch (cmd) {
 	case GF_IOC_INIT:
 		pr_debug("%s: GF_IOC_INIT\n", __func__);
 		if (copy_to_user((void __user *)arg, (void *)&netlink_route, sizeof(u8))) {
-			retval = -EFAULT;
+			rc = -EFAULT;
 			break;
 		}
 		break;
@@ -97,7 +97,7 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case GF_IOC_INPUT_KEY_EVENT:
 		if (copy_from_user(&gf_key, (struct gf_key *)arg, sizeof(struct gf_key))) {
 			pr_err("%s: failed to copy input key event\n", __func__);
-			retval = -EFAULT;
+			rc = -EFAULT;
 			break;
 		}
 
@@ -107,7 +107,7 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		pr_debug("%s: unsupport cmd:0x%x\n", __func__, cmd);
 	}
 
-	return retval;
+	return rc;
 }
 
 #ifdef CONFIG_COMPAT
