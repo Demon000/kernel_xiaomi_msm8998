@@ -51,6 +51,7 @@ struct gf_device {
 	bool display_on;
 	int event;
 
+	bool irq_enabled;
 	signed irq_gpio;
 	signed reset_gpio;
 

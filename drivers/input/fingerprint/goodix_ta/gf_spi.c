@@ -54,6 +54,18 @@ static void gf_hw_reset(struct gf_device *gf_dev, unsigned int delay_ms)
 	msleep(delay_ms);
 }
 
+static void gf_irq_config(struct gf_device *gf_dev, bool state) {
+	if (gf_dev->irq_enabled == state)
+		return;
+
+	if (state)
+		enable_irq(gf_dev->irq);
+	else
+		disable_irq(gf_dev->irq);
+
+	gf_dev->irq_enabled = state;
+}
+
 static void gf_kernel_key_input(struct gf_device *gf_dev, struct gf_key *gf_key)
 {
 	if (!gf_dev->enable_key_events)
@@ -152,6 +164,7 @@ static int gf_open(struct inode *inode, struct file *filp)
 	/*
 	 * Requesting an irq also enables it.
 	 */
+	gf_dev->irq_enabled = true;
 	rc = request_threaded_irq(gf_dev->irq, NULL, gf_irq,
 			IRQF_TRIGGER_RISING | IRQF_ONESHOT,
 			GF_IRQ_NAME, gf_dev);
@@ -183,7 +196,7 @@ static int gf_release(struct inode *inode, struct file *filp)
 	if (--gf_dev->users != 0)
 		goto no_config;
 
-	disable_irq(gf_dev->irq);
+	gf_irq_config(gf_dev, false);
 	free_irq(gf_dev->irq, gf_dev);
 	gpio_free(gf_dev->irq_gpio);
 	gpio_free(gf_dev->reset_gpio);
@@ -351,6 +364,7 @@ static int gf_probe(struct platform_device *pdev)
 	gf_dev->process = NULL;
 	gf_dev->display_on = true;
 	gf_dev->enable_key_events = true;
+	gf_dev->irq_enabled = false;
 
 	platform_set_drvdata(pdev, gf_dev);
 
