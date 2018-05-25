@@ -236,9 +236,11 @@ static void gf_event_worker(struct work_struct *work)
 	 * response on successful verification always fires.
 	 */
 	case GF_NET_EVENT_FB_BLACK:
+		gf_dev->display_on = false;
 		set_user_nice(gf_dev->process, -1);
 		break;
 	case GF_NET_EVENT_FB_UNBLACK:
+		gf_dev->display_on = true;
 		set_user_nice(gf_dev->process, 0);
 		break;
 	/*
@@ -306,6 +308,7 @@ static int gf_probe(struct platform_device *pdev)
 	int rc = 0;
 
 	gf_dev->process = NULL;
+	gf_dev->display_on = true;
 
 	gf_dev->reset_gpio = of_get_named_gpio(pdev->dev.of_node,
 			"fp-gpio-reset", 0);
