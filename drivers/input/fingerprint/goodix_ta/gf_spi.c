@@ -44,8 +44,6 @@
 #define GF_INPUT_NAME		"uinput-goodix"
 #define GF_SPIDEV_NAME		"goodix,fingerprint"
 
-#define WAKELOCK_HOLD_TIME	2000
-
 static struct gf_device gf;
 
 static unsigned int report_home_events = 1;
@@ -120,8 +118,6 @@ static long gf_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 static irqreturn_t gf_irq(int irq, void *handle)
 {
 	struct gf_device *gf_dev = handle;
-
-	wake_lock_timeout(&gf_dev->fp_wakelock, msecs_to_jiffies(WAKELOCK_HOLD_TIME));
 
 	gf_dev->event = GF_NET_EVENT_IRQ;
 	queue_work(gf_dev->event_workqueue, &gf_dev->event_work);
@@ -215,7 +211,7 @@ static const struct file_operations gf_fops = {
 	.release = gf_release,
 };
 
-#define SCHED_BOOST_MS		2000
+#define FINGERPRINT_PROCESSING_MS		2000
 static void gf_unboost_worker(struct work_struct *work)
 {
 	sched_set_boost(0);
@@ -248,15 +244,22 @@ static void gf_event_worker(struct work_struct *work)
 		set_user_nice(gf_dev->process, 0);
 		break;
 	/*
-	 * IRQs are followed by fingerprint procesing,
+	 * IRQs are followed by fingerprint procesing, hold a wakelock to make
+	 * sure the fingerprint is processed when screen is off. Also,
 	 * run a sched boost to speed it up.
 	 */
 	case GF_NET_EVENT_IRQ:
+		if (gf_dev->display_on)
+			break;
+
+		wake_lock_timeout(&gf_dev->fp_wakelock,
+				msecs_to_jiffies(FINGERPRINT_PROCESSING_MS));
+		
 		cancel_delayed_work(&gf_dev->unboost_work);
 		sched_set_boost(1);
 		queue_delayed_work(system_power_efficient_wq,
 				&gf_dev->unboost_work,
-				msecs_to_jiffies(SCHED_BOOST_MS));
+				msecs_to_jiffies(FINGERPRINT_PROCESSING_MS));
 		break;
 	}
 
