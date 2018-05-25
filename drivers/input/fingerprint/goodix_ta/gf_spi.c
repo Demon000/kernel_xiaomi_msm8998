@@ -137,37 +137,39 @@ static int gf_open(struct inode *inode, struct file *filp)
 	gf_dev->process = current;
 
 	/*
-	 * If this is the first user, turn on irqs and reset the hardware.
+	 * If this is not the first user, skip hardware configuration.
 	 */
-	if (++gf_dev->users == 1) {
-		rc = gpio_request(gf_dev->reset_gpio, "goodix_reset");
-		if (rc) {
-			pr_err("%s: failed to request reset_gpio, rc = %d\n", __func__, rc);
-			goto error_reset_gpio;
-		}
-		gpio_direction_output(gf_dev->reset_gpio, 1);
+	if (++gf_dev->users != 1)
+		goto no_config;
 
-		rc = gpio_request(gf_dev->irq_gpio, "goodix_irq");
-		if (rc) {
-			pr_err("%s: failed to request irq_gpio, rc = %d\n", __func__, rc);
-			goto error_irq_gpio;
-		}
-		gpio_direction_input(gf_dev->irq_gpio);
+	rc = gpio_request(gf_dev->reset_gpio, "goodix_reset");
+	if (rc) {
+		pr_err("%s: failed to request reset_gpio, rc = %d\n", __func__, rc);
+		goto error_reset_gpio;
+	}
+	gpio_direction_output(gf_dev->reset_gpio, 1);
 
-		/*
-		 * Requesting an irq also enables it.
-		 */
-		rc = request_threaded_irq(gf_dev->irq, NULL, gf_irq,
-				IRQF_TRIGGER_RISING | IRQF_ONESHOT,
-				GF_IRQ_NAME, gf_dev);
-		if (rc) {
-			pr_err("%s: failed to request threaded irq, rc = %d\n", __func__, rc);
-			goto error_irq_req;
-		}
+	rc = gpio_request(gf_dev->irq_gpio, "goodix_irq");
+	if (rc) {
+		pr_err("%s: failed to request irq_gpio, rc = %d\n", __func__, rc);
+		goto error_irq_gpio;
+	}
+	gpio_direction_input(gf_dev->irq_gpio);
 
-		gf_hw_reset(gf_dev, 3);
+	/*
+	 * Requesting an irq also enables it.
+	 */
+	rc = request_threaded_irq(gf_dev->irq, NULL, gf_irq,
+			IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+			GF_IRQ_NAME, gf_dev);
+	if (rc) {
+		pr_err("%s: failed to request threaded irq, rc = %d\n", __func__, rc);
+		goto error_irq_req;
 	}
 
+	gf_hw_reset(gf_dev, 3);
+
+no_config:
 	filp->private_data = gf_dev;
 	nonseekable_open(inode, filp);
 
@@ -185,14 +187,16 @@ static int gf_release(struct inode *inode, struct file *filp)
 {
 	struct gf_dev *gf_dev = filp->private_data;
 
-	filp->private_data = NULL;
+	if (--gf_dev->users != 0)
+		goto no_config;
 
-	if (--gf_dev->users == 0) {
-		disable_irq(gf_dev->irq);
-		free_irq(gf_dev->irq, gf_dev);
-		gpio_free(gf_dev->irq_gpio);
-		gpio_free(gf_dev->reset_gpio);
-	}
+	disable_irq(gf_dev->irq);
+	free_irq(gf_dev->irq, gf_dev);
+	gpio_free(gf_dev->irq_gpio);
+	gpio_free(gf_dev->reset_gpio);
+
+no_config:
+	filp->private_data = NULL;
 
 	return 0;
 }
