@@ -37,7 +37,7 @@ enum {
 
 #define NETLINK_TEST 25
 
-struct gf_dev {
+struct gf_device {
 	struct class *cls;
 	dev_t devt;
 
