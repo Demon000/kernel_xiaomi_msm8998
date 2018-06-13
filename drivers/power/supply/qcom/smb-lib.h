@@ -18,6 +18,8 @@
 #include <linux/regulator/driver.h>
 #include <linux/regulator/consumer.h>
 #include <linux/extcon.h>
+#include <linux/notifier.h>
+#include <linux/fb.h>
 #include "storm-watch.h"
 
 enum print_reason {
@@ -56,6 +58,7 @@ enum print_reason {
 #define PD_SUSPEND_SUPPORTED_VOTER	"PD_SUSPEND_SUPPORTED_VOTER"
 #define PL_DELAY_VOTER			"PL_DELAY_VOTER"
 #define CTM_VOTER			"CTM_VOTER"
+#define FB_SCREEN_VOTER			"FB_SCREEN_VOTER"
 #define SW_QC3_VOTER			"SW_QC3_VOTER"
 #define AICL_RERUN_VOTER		"AICL_RERUN_VOTER"
 #define LEGACY_UNKNOWN_VOTER		"LEGACY_UNKNOWN_VOTER"
@@ -65,11 +68,15 @@ enum print_reason {
 #define OTG_DELAY_VOTER			"OTG_DELAY_VOTER"
 #define USBIN_I_VOTER			"USBIN_I_VOTER"
 #define WEAK_CHARGER_VOTER		"WEAK_CHARGER_VOTER"
+#define CHG_AWAKE_VOTER                 "CHG_AWAKE_VOTER"
+#define CC_FLOAT_VOTER                  "CC_FLOAT_VOTER"
 
 #define VCONN_MAX_ATTEMPTS	3
 #define OTG_MAX_ATTEMPTS	3
 #define BOOST_BACK_STORM_COUNT	3
 #define WEAK_CHG_STORM_COUNT	8
+#define CC_FLOAT_WORK_START_DELAY_MS    700
+#define BATT_TEMP_CRITICAL_LOW		50
 
 enum smb_mode {
 	PARALLEL_MASTER = 0,
@@ -195,6 +202,7 @@ struct smb_params {
 	struct smb_chg_param	dc_icl_div2_mid_hv;
 	struct smb_chg_param	dc_icl_div2_hv;
 	struct smb_chg_param	jeita_cc_comp;
+	struct smb_chg_param	jeita_fv_comp;
 	struct smb_chg_param	freq_buck;
 	struct smb_chg_param	freq_boost;
 };
@@ -243,6 +251,7 @@ struct smb_charger {
 	struct mutex		ps_change_lock;
 	struct mutex		otg_oc_lock;
 	struct mutex		vconn_oc_lock;
+	struct mutex		screen_lock;
 
 	/* power supplies */
 	struct power_supply		*batt_psy;
@@ -256,6 +265,10 @@ struct smb_charger {
 
 	/* notifiers */
 	struct notifier_block	nb;
+	struct notifier_block		smb_fb_notif;
+	struct delayed_work		screen_on_work;
+	bool				screen_on;
+	bool				checking_in_progress;
 
 	/* parallel charging */
 	struct parallel_params	pl;
@@ -298,6 +311,8 @@ struct smb_charger {
 	struct work_struct	legacy_detection_work;
 	struct delayed_work	uusb_otg_work;
 	struct delayed_work	bb_removal_work;
+	struct delayed_work	cc_float_charge_work;
+	struct delayed_work	typec_reenable_work;
 
 	/* cached status */
 	int			voltage_min_uv;
@@ -307,7 +322,12 @@ struct smb_charger {
 	int			boost_threshold_ua;
 	int			system_temp_level;
 	int			thermal_levels;
-	int			*thermal_mitigation;
+	int			*thermal_mitigation_dcp;
+	int			*thermal_mitigation_qc3;
+	int			*thermal_mitigation_qc2;
+	int			jeita_ccomp_cool_delta;
+	int			jeita_ccomp_hot_delta;
+	int			jeita_ccomp_low_delta;
 	int			dcp_icl_ua;
 	int			fake_capacity;
 	bool			step_chg_enabled;
@@ -321,6 +341,7 @@ struct smb_charger {
 	int			otg_attempts;
 	int			vconn_attempts;
 	int			default_icl_ua;
+	int			last_soc;
 	int			otg_cl_ua;
 	bool			uusb_apsd_rerun_done;
 	bool			pd_hard_reset;
@@ -342,6 +363,8 @@ struct smb_charger {
 	bool			typec_en_dis_active;
 	int			boost_current_ua;
 	int			temp_speed_reading_count;
+	bool                    cc_float_detected;
+	bool			float_rerun_apsd;
 
 	/* extcon for VBUS / ID notification to USB for uUSB */
 	struct extcon_dev	*extcon;
@@ -516,6 +539,8 @@ int smblib_get_charge_current(struct smb_charger *chg, int *total_current_ua);
 int smblib_get_prop_pr_swap_in_progress(struct smb_charger *chg,
 				union power_supply_propval *val);
 int smblib_set_prop_pr_swap_in_progress(struct smb_charger *chg,
+				const union power_supply_propval *val);
+int smblib_set_prop_rerun_apsd(struct smb_charger *chg,
 				const union power_supply_propval *val);
 
 int smblib_init(struct smb_charger *chg);

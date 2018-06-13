@@ -704,6 +704,7 @@ static int fg_get_msoc_raw(struct fg_chip *chip, int *val)
 
 #define FULL_CAPACITY	100
 #define FULL_SOC_RAW	255
+#define FULL_SOC_REPORT_THR     250
 static int fg_get_msoc(struct fg_chip *chip, int *msoc)
 {
 	int rc;
@@ -712,7 +713,15 @@ static int fg_get_msoc(struct fg_chip *chip, int *msoc)
 	if (rc < 0)
 		return rc;
 
-	*msoc = DIV_ROUND_CLOSEST(*msoc * FULL_CAPACITY, FULL_SOC_RAW);
+	if ((*msoc >= FULL_SOC_REPORT_THR)
+			&& (*msoc < FULL_SOC_RAW) && chip->report_full) {
+		*msoc = DIV_ROUND_CLOSEST(*msoc * FULL_CAPACITY, FULL_SOC_RAW) + 1;
+		if (*msoc >= FULL_CAPACITY)
+			*msoc = FULL_CAPACITY;
+	} else {
+		*msoc = DIV_ROUND_CLOSEST(*msoc * FULL_CAPACITY, FULL_SOC_RAW);
+	}
+
 	return 0;
 }
 
@@ -1886,6 +1895,7 @@ static int fg_set_constant_chg_voltage(struct fg_chip *chip, int volt_uv)
 	return 0;
 }
 
+#define DEFAULT_RECHARGE_SOC_RAW 0xfd
 static int fg_set_recharge_soc(struct fg_chip *chip, int recharge_soc)
 {
 	u8 buf;
@@ -1898,6 +1908,11 @@ static int fg_set_recharge_soc(struct fg_chip *chip, int recharge_soc)
 		return 0;
 
 	fg_encode(chip->sp, FG_SRAM_RECHARGE_SOC_THR, recharge_soc, &buf);
+
+	if ((buf <= DEFAULT_RECHARGE_SOC_RAW)
+			&& (chip->health != POWER_SUPPLY_HEALTH_WARM))
+		buf += 1;
+
 	rc = fg_sram_write(chip,
 			chip->sp[FG_SRAM_RECHARGE_SOC_THR].addr_word,
 			chip->sp[FG_SRAM_RECHARGE_SOC_THR].addr_byte, &buf,
@@ -1925,9 +1940,11 @@ static int fg_adjust_recharge_soc(struct fg_chip *chip)
 	 * the recharge SOC threshold based on the monotonic SOC at which
 	 * the charge termination had happened.
 	 */
-	if (is_input_present(chip)) {
-		if (chip->charge_done) {
-			if (!chip->recharge_soc_adjusted) {
+	if (is_input_present(chip) && chip->charge_done &&
+			!chip->recharge_soc_adjusted) {
+				if (chip->health == POWER_SUPPLY_HEALTH_GOOD)
+					return 0;
+
 				/* Get raw monotonic SOC for calculation */
 				rc = fg_get_msoc(chip, &msoc);
 				if (rc < 0) {
@@ -1940,18 +1957,13 @@ static int fg_adjust_recharge_soc(struct fg_chip *chip)
 				new_recharge_soc = msoc - (FULL_CAPACITY -
 								recharge_soc);
 				chip->recharge_soc_adjusted = true;
-			} else {
-				/* adjusted already, do nothing */
-				return 0;
-			}
-		} else {
-			/* Charging, do nothing */
-			return 0;
-		}
-	} else {
+	} else if ((!is_input_present(chip) || chip->health == POWER_SUPPLY_HEALTH_GOOD)
+			&& chip->recharge_soc_adjusted) {
 		/* Restore the default value */
 		new_recharge_soc = recharge_soc;
 		chip->recharge_soc_adjusted = false;
+	} else {
+		return 0;
 	}
 
 	rc = fg_set_recharge_soc(chip, new_recharge_soc);
@@ -2215,6 +2227,7 @@ static void fg_ttf_update(struct fg_chip *chip)
 	int delay_ms;
 	union power_supply_propval prop = {0, };
 	int online = 0;
+	int msoc = 0;
 
 	if (usb_psy_initialized(chip)) {
 		rc = power_supply_get_property(chip->usb_psy,
@@ -2249,6 +2262,25 @@ static void fg_ttf_update(struct fg_chip *chip)
 		online = online || prop.intval;
 	}
 
+	chip->charge_done = prop.intval;
+	if (chip->charge_done && !chip->report_full) {
+		chip->report_full = true;
+	} else if (!chip->charge_done && chip->report_full) {
+		rc = fg_get_msoc_raw(chip, &msoc);
+		if (rc < 0)
+			pr_err("Error in getting msoc, rc=%d\n", rc);
+
+		if (msoc < FULL_SOC_REPORT_THR)
+			chip->report_full = false;
+	}
+
+	rc = power_supply_get_property(chip->batt_psy,
+			POWER_SUPPLY_PROP_HEALTH, &prop);
+	if (rc < 0) {
+		pr_err("Error in getting battery health, rc=%d\n", rc);
+		return;
+	}
+	chip->health = prop.intval;
 
 	if (chip->online_status == online)
 		return;
@@ -2394,7 +2426,8 @@ out:
 
 static int fg_get_cycle_count(struct fg_chip *chip)
 {
-	int count;
+	int count = 0;
+	int i = 0;
 
 	if (!chip->cyc_ctr.en)
 		return 0;
@@ -2403,7 +2436,9 @@ static int fg_get_cycle_count(struct fg_chip *chip)
 		return -EINVAL;
 
 	mutex_lock(&chip->cyc_ctr.lock);
-	count = chip->cyc_ctr.count[chip->cyc_ctr.id - 1];
+	for (i = 0; i < BUCKET_COUNT; i++)
+		count += chip->cyc_ctr.count[i];
+	count /= BUCKET_COUNT;
 	mutex_unlock(&chip->cyc_ctr.lock);
 	return count;
 }
@@ -2414,6 +2449,7 @@ static void status_change_work(struct work_struct *work)
 			struct fg_chip, status_change_work);
 	union power_supply_propval prop = {0, };
 	int rc, batt_temp;
+	int msoc = 0;
 
 	if (!batt_psy_initialized(chip)) {
 		fg_dbg(chip, FG_STATUS, "Charger not available?!\n");
@@ -2445,6 +2481,17 @@ static void status_change_work(struct work_struct *work)
 	}
 
 	chip->charge_done = prop.intval;
+	if (chip->charge_done && !chip->report_full) {
+		chip->report_full = true;
+	} else if (!chip->charge_done && chip->report_full) {
+		rc = fg_get_msoc_raw(chip, &msoc);
+		if (rc < 0)
+			pr_err("Error in getting msoc, rc=%d\n", rc);
+
+		if (msoc < FULL_SOC_REPORT_THR)
+			chip->report_full = false;
+	}
+
 	fg_cycle_counter_update(chip);
 	fg_cap_learning_update(chip);
 
@@ -3172,6 +3219,10 @@ static int fg_update_maint_soc(struct fg_chip *chip)
 
 	fg_dbg(chip, FG_IRQ, "msoc: %d last_msoc: %d maint_soc: %d delta_soc: %d\n",
 		msoc, chip->last_msoc, chip->maint_soc, chip->delta_soc);
+
+	if (msoc != chip->last_msoc)
+		power_supply_changed(chip->batt_psy);
+
 	chip->last_msoc = msoc;
 out:
 	mutex_unlock(&chip->charge_full_lock);
@@ -3837,6 +3888,11 @@ static int fg_hw_init(struct fg_chip *chip)
 		return rc;
 	}
 
+	rc = fg_sram_masked_write(chip, 19, 0, 0x08, 0x08, FG_IMA_DEFAULT);
+	if (rc < 0) {
+		pr_err("Error in writing cc soc auto clear rc=%d\n", rc);
+	}
+
 	fg_encode(chip->sp, FG_SRAM_ESR_PULSE_THRESH,
 		chip->dt.esr_pulse_thresh_ma, buf);
 	rc = fg_sram_write(chip, chip->sp[FG_SRAM_ESR_PULSE_THRESH].addr_word,
@@ -4096,9 +4152,6 @@ static irqreturn_t fg_delta_msoc_irq_handler(int irq, void *data)
 	if (rc < 0)
 		pr_err("Error in adjusting timebase, rc=%d\n", rc);
 
-	if (batt_psy_initialized(chip))
-		power_supply_changed(chip->batt_psy);
-
 	return IRQ_HANDLED;
 }
 
@@ -4136,7 +4189,6 @@ static struct fg_irq_info fg_irqs[FG_IRQ_MAX] = {
 	[MSOC_HIGH_IRQ] = {
 		.name		= "msoc-high",
 		.handler	= fg_soc_irq_handler,
-		.wakeable	= true,
 	},
 	[MSOC_EMPTY_IRQ] = {
 		.name		= "msoc-empty",
@@ -4146,12 +4198,10 @@ static struct fg_irq_info fg_irqs[FG_IRQ_MAX] = {
 	[MSOC_LOW_IRQ] = {
 		.name		= "msoc-low",
 		.handler	= fg_soc_irq_handler,
-		.wakeable	= true,
 	},
 	[MSOC_DELTA_IRQ] = {
 		.name		= "msoc-delta",
 		.handler	= fg_delta_msoc_irq_handler,
-		.wakeable	= true,
 	},
 	[BSOC_DELTA_IRQ] = {
 		.name		= "bsoc-delta",
