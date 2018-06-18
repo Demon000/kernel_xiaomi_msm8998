@@ -60,6 +60,8 @@
 #endif
 #include <linux/mdss_io_util.h>
 
+#include <linux/cpu_input_boost.h>
+
 #define INPUT_PHYS_NAME "synaptics_dsx/touch_input"
 #define STYLUS_PHYS_NAME "synaptics_dsx/stylus"
 
@@ -1925,6 +1927,8 @@ static void synaptics_rmi4_report_touch(struct synaptics_rmi4_data *rmi4_data,
 	dev_dbg(rmi4_data->pdev->dev.parent,
 			"%s: Function %02x reporting\n",
 			__func__, fhandler->fn_number);
+
+	cpu_input_boost_kick();
 
 	switch (fhandler->fn_number) {
 	case SYNAPTICS_RMI4_F11:
