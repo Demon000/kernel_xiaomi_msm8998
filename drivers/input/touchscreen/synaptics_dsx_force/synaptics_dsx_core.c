@@ -60,6 +60,8 @@
 #endif
 #include <linux/mdss_io_util.h>
 
+#include <linux/cpu_input_boost.h>
+
 #define INPUT_PHYS_NAME "synaptics_dsx/touch_input"
 #define STYLUS_PHYS_NAME "synaptics_dsx/stylus"
 
@@ -1574,6 +1576,11 @@ static int synaptics_rmi4_f12_abs_report(struct synaptics_rmi4_data *rmi4_data,
 		rmi4_data->touchs = 0;
 		return 0;
 	}
+
+	/*
+	 * Kick an input boost whenever the screen is being pressed.
+	 */
+	cpu_input_boost_kick();
 
 	retval = synaptics_rmi4_reg_read(rmi4_data,
 			data_addr + extra_data->data1_offset,
