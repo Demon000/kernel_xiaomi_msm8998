@@ -204,6 +204,7 @@ static int fb_notifier_cb(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
+#if 0
 static void cpu_input_boost_input_event(struct input_handle *handle,
 	unsigned int type, unsigned int code, int value)
 {
@@ -289,6 +290,7 @@ static struct input_handler cpu_input_boost_input_handler = {
 	.name		= "cpu_input_boost_handler",
 	.id_table	= cpu_input_boost_ids
 };
+#endif
 
 static struct boost_drv *alloc_boost_drv(void)
 {
@@ -336,12 +338,14 @@ static int __init cpu_input_boost_init(void)
 		goto free_b;
 	}
 
+#if 0
 	cpu_input_boost_input_handler.private = b;
 	ret = input_register_handler(&cpu_input_boost_input_handler);
 	if (ret) {
 		pr_err("Failed to register input handler, err: %d\n", ret);
 		goto unregister_cpu_notif;
 	}
+#endif
 
 	b->fb_notif.notifier_call = fb_notifier_cb;
 	b->fb_notif.priority = INT_MAX;
@@ -357,8 +361,10 @@ static int __init cpu_input_boost_init(void)
 	return 0;
 
 unregister_handler:
+#if 0
 	input_unregister_handler(&cpu_input_boost_input_handler);
 unregister_cpu_notif:
+#endif
 	cpufreq_unregister_notifier(&b->cpu_notif, CPUFREQ_POLICY_NOTIFIER);
 free_b:
 	kfree(b);
