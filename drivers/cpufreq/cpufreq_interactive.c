@@ -448,8 +448,6 @@ static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
 	unsigned long max_cpu;
 	int i, fcpu;
 	struct cpufreq_govinfo govinfo;
-	bool skip_hispeed_logic, skip_min_sample_time;
-	bool policy_max_fast_restore = false;
 
 	if (!down_read_trylock(&ppol->enable_sem))
 		return;
@@ -512,20 +510,7 @@ static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
 	cpu_load = loadadjfreq / ppol->target_freq;
 	tunables->boosted = tunables->boost_val || now < tunables->boostpulse_endtime;
 
-	skip_hispeed_logic = tunables->ignore_hispeed_on_notif && is_notif;
-	skip_min_sample_time = tunables->fast_ramp_down && is_notif;
-	if (now - ppol->max_freq_hyst_start_time <
-	    tunables->max_freq_hysteresis &&
-	    cpu_load >= tunables->go_hispeed_load &&
-	    ppol->target_freq < ppol->policy->max) {
-		skip_hispeed_logic = true;
-		skip_min_sample_time = true;
-		policy_max_fast_restore = true;
-	}
-
-	if (policy_max_fast_restore) {
-		new_freq = ppol->policy->max;
-	} else if (skip_hispeed_logic) {
+	if (tunables->ignore_hispeed_on_notif && is_notif) {
 		new_freq = choose_freq(ppol, loadadjfreq);
 	} else if (cpu_load >= tunables->go_hispeed_load || tunables->boosted) {
 		if (ppol->target_freq < tunables->hispeed_freq) {
@@ -543,11 +528,7 @@ static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
 			new_freq = tunables->hispeed_freq;
 	}
 
-	if (now - ppol->max_freq_hyst_start_time <
-	    tunables->max_freq_hysteresis)
-		new_freq = max(tunables->hispeed_freq, new_freq);
-
-	if (!skip_hispeed_logic &&
+	if ((!tunables->ignore_hispeed_on_notif || !is_notif) &&
 	    ppol->target_freq >= tunables->hispeed_freq &&
 	    new_freq > ppol->target_freq &&
 	    now - ppol->hispeed_validate_time <
@@ -570,11 +551,22 @@ static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
 
 	new_freq = ppol->freq_table[index].frequency;
 
+	if ((!tunables->fast_ramp_down || !is_notif) &&
+	    new_freq < ppol->target_freq &&
+	    now - ppol->max_freq_hyst_start_time <
+	    tunables->max_freq_hysteresis) {
+		trace_cpufreq_interactive_notyet(max_cpu, cpu_load,
+			ppol->target_freq, ppol->policy->cur, new_freq);
+		spin_unlock_irqrestore(&ppol->target_freq_lock, flags);
+		goto rearm;
+	}
+
 	/*
 	 * Do not scale below floor_freq unless we have been at or above the
 	 * floor frequency for the minimum sample time since last validated.
 	 */
-	if (!skip_min_sample_time && new_freq < ppol->floor_freq) {
+	if ((!tunables->fast_ramp_down || !is_notif) &&
+	    new_freq < ppol->floor_freq) {
 		if (now - ppol->floor_validate_time <
 				tunables->min_sample_time) {
 			trace_cpufreq_interactive_notyet(
@@ -590,19 +582,15 @@ static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
 	 * or above the selected frequency for a minimum of min_sample_time,
 	 * if not boosted to hispeed_freq.  If boosted to hispeed_freq then we
 	 * allow the speed to drop as soon as the boostpulse duration expires
-	 * (or the indefinite boost is turned off). If policy->max is restored
-	 * for max_freq_hysteresis, don't extend the timestamp. Otherwise, it
-	 * could incorrectly extended the duration of max_freq_hysteresis by
-	 * min_sample_time.
+	 * (or the indefinite boost is turned off).
 	 */
 
-	if ((!tunables->boosted || new_freq > tunables->hispeed_freq)
-	    && !policy_max_fast_restore) {
+	if (!tunables->boosted || new_freq > tunables->hispeed_freq) {
 		ppol->floor_freq = new_freq;
 		ppol->floor_validate_time = now;
 	}
 
-	if (new_freq == ppol->policy->max && !policy_max_fast_restore)
+	if (new_freq == ppol->policy->max)
 		ppol->max_freq_hyst_start_time = now;
 
 	if (ppol->target_freq == new_freq &&
