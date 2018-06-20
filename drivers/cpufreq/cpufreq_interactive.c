@@ -442,13 +442,11 @@ static u64 update_load(int cpu)
 static unsigned int sl_busy_to_laf(struct cpufreq_interactive_policyinfo *ppol,
 				   unsigned long busy)
 {
-	int prev_load;
 	struct cpufreq_interactive_tunables *tunables =
 		ppol->policy->governor_data;
 
-	prev_load = mult_frac(ppol->policy->cpuinfo.max_freq * 100,
-				busy, tunables->timer_rate);
-	return prev_load;
+	busy *= ppol->policy->cpuinfo.max_freq;
+	return div64_s64(busy, tunables->timer_rate) * 100;
 }
 
 #define NEW_TASK_RATIO 75
